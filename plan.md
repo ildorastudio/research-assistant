@@ -15,9 +15,9 @@ The pipeline runs Improver → Researchers → Reviewer → Output, but the righ
    - `httpx>=0.27`
    - `python-dotenv>=1.0`
 3. Write `.env.example` with known-good OpenRouter slugs so the tool runs out of the box:
-   - `IMPROVER_MODEL=anthropic/claude-opus-4`
-   - `RESEARCHER_MODELS=anthropic/claude-opus-4,anthropic/claude-sonnet-4,openai/gpt-4o,google/gemini-pro-1.5,deepseek/deepseek-chat`
-   - `REVIEWER_MODEL=anthropic/claude-opus-4`
+   - `IMPROVER_MODEL=anthropic/claude-sonnet-4.6`
+   - `RESEARCHER_MODELS=anthropic/claude-opus-4.6,anthropic/claude-sonnet-4.6,openai/gpt-4o,google/gemini-pro-1.5,deepseek/deepseek-chat`
+   - `REVIEWER_MODEL=anthropic/claude-opus-4.6`
    - `REQUEST_TIMEOUT_SECONDS=180`
    - `MAX_RETRIES=2`
    - `MIN_SUCCESSFUL_RESEARCHERS=2`
