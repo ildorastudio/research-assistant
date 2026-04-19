@@ -12,6 +12,9 @@ dependencies = [
 
 [project.scripts]
 app = "research_assistant.main:main_cli"
+clarify = "research_assistant.step1_clarify:main_cli"
+finalize = "research_assistant.step2_finalize:main_cli"
+research = "research_assistant.step3_research:main_cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_assistant"]

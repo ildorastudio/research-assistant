@@ -137,6 +137,5 @@ dmypy.json
 Thumbs.db
 
 # Research assistant — runtime files (contain secrets and generated output)
-db/storage.db
-data/intermediate/
-data/output/
+db/
+data/

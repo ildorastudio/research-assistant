@@ -342,13 +342,15 @@ Only built after every stage above is independently verified.
 
 1. Load `.env`, validate required keys, fail fast if any missing.
 2. Read `input.txt`.
-3. Branch on `clarifications.md` existence:
-   - Missing → call improver with prompt only. If `needs_clarification=true`, write `clarifications.md`, print instructions, exit 0. If false, continue with `improved_prompt`.
-   - Present → parse it, call improver with prompt + Q&A pairs, expect `needs_clarification=false` and continue. Edge case: if it still asks questions, overwrite `clarifications.md` and exit.
+3. Branch on `clarifications.md` existence or improver result:
+   - Starting from a fresh run: The improver is called. If `needs_clarification=true`, the app enters an **interactive terminal loop**. It prompts the user for answers one-by-one using `input()`, then re-calls the improver with the full context.
+   - Resuming/Pre-filling: If `clarifications.md` exists at startup (e.g. from a past run or manual pre-fill), it is loaded as initial context for the first improver call.
+   - Once the improver returns `needs_clarification=false`, the pipeline continues with the `improved_prompt`.
 4. Run researchers. If fewer than `MIN_SUCCESSFUL_RESEARCHERS` succeed, skip the reviewer and write an explanatory `output.md` listing the failures.
 5. Run reviewer.
 6. Assemble `output.md` (see Phase 6).
 7. **Only on full success**, delete `clarifications.md`. If any later stage errors after a successful clarifications parse, leave the file alone so the user can rerun.
+
 
 Open a single `httpx.AsyncClient` at the top of `main()`, pass it into every stage, close it in a `finally`.
 
@@ -371,7 +373,7 @@ Write the real system prompts in `prompts/` now that you know exactly what input
 Four runs against the real stack:
 
 1. Clear prompt, 2 researchers → full `output.md` produced.
-2. Vague prompt → `clarifications.md` written; fill it; rerun → full `output.md`.
+2. Vague prompt → Interactive loop starts in terminal; provide answers; verify → full `output_final.md`.
 3. Deliberately bogus slug mixed into `RESEARCHER_MODELS` → that model listed as dropped; run still completes.
 4. Set `MIN_SUCCESSFUL_RESEARCHERS=10` with only 5 researchers → pipeline aborts with an explanatory `output.md`.
 

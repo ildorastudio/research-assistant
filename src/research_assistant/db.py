@@ -32,22 +32,22 @@ from typing import Any
 
 RESEARCHER_MODEL_SEEDS: list[tuple[str, int, int]] = [
     # (slug, enabled, preference_order)
-    ("anthropic/claude-sonnet-4-5",      1, 1),
-    ("anthropic/claude-opus-4-5",        1, 2),
-    ("openai/gpt-4o",                    1, 3),
-    ("google/gemini-pro-1.5",            1, 4),
-    ("deepseek/deepseek-chat",           1, 5),
+    ("anthropic/claude-sonnet-4-6",      0, 1),
+    ("anthropic/claude-opus-4-7",        0, 2),
+    ("anthropic/claude-haiku-4.5",       1, 3),
+    ("openai/gpt-5.4",                   0, 4),
+    ("z-ai/glm-5.1",                     1, 5),
     ("openai/gpt-5.2",                   0, 6),
     ("google/gemini-3.1-pro-preview",    0, 7),
-    ("deepseek/deepseek-v3.2",           0, 8),
-    ("mistralai/devstral-2-2512",        0, 9),
+    ("deepseek/deepseek-v3.2",           1, 8),
+    ("minimax/minimax-m2.7",             0, 9),
 ]
 
 # Default scalar settings (no secret values here)
 SETTINGS_SEEDS: list[tuple[str, str]] = [
     ("OPENROUTER_API_KEY",          ""),   # must be set by user — never hardcoded
-    ("IMPROVER_MODEL",              "anthropic/claude-sonnet-4-5"),
-    ("REVIEWER_MODEL",              "anthropic/claude-opus-4-5"),
+    ("IMPROVER_MODEL",              "openai/gpt-oss-20b"),
+    ("REVIEWER_MODEL",              "anthropic/claude-sonnet-4-6"),
     ("REQUEST_TIMEOUT_SECONDS",     "180"),
     ("MAX_RETRIES",                 "2"),
     ("MIN_SUCCESSFUL_RESEARCHERS",  "2"),

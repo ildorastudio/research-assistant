@@ -28,4 +28,6 @@ Return ONLY a JSON object with this exact schema, no prose, no markdown fences:
 Rules:
 - If needs_clarification is true, "questions" must be a non-empty list and "improved_prompt" must be an empty string.
 - If needs_clarification is false, "questions" must be an empty list and "improved_prompt" must be a non-empty string.
+- Do NOT attempt to answer your own questions or make assumptions for the user.
+- Only ask for clarification on fundamental ambiguities (e.g. "which company?") or missing scoping (e.g. "what timeframe?").
 - Output valid JSON only. No code fences, no commentary before or after.

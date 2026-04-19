@@ -8,6 +8,7 @@ pooling works across the parallel researcher fan-out.
 from __future__ import annotations
 
 import asyncio
+import time
 import os
 from typing import Optional
 
@@ -113,5 +114,83 @@ async def call_model(
         # If we get here, this attempt failed in a retryable way.
         if attempt < total_attempts - 1:
             await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s, ...
+
+    raise ModelCallFailed(model, f"after {total_attempts} attempts: {last_error}")
+
+
+def call_model_sync(
+    model: str,
+    system: str,
+    user: str,
+    *,
+    api_key: str,
+    response_format: Optional[dict] = None,
+    timeout: float = 180.0,
+    max_retries: int = 2,
+) -> str:
+    """Synchronous version of call_model using httpx.Client — intended for use in threads.
+
+    Identical retry and error-handling logic to the async variant; uses
+    ``time.sleep`` instead of ``asyncio.sleep`` so it is safe to call from a
+    worker thread that has no running event loop.
+    """
+    if not api_key:
+        raise ModelCallFailed(model, "OPENROUTER_API_KEY is empty — set it via manage_db.py")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/local/multi-llm-research-assistant",
+        "X-Title": "Multi-LLM Research Assistant",
+    }
+
+    payload: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    }
+    if response_format is not None:
+        payload["response_format"] = response_format
+
+    last_error: str = "no attempt was made"
+    total_attempts = max_retries + 1
+
+    for attempt in range(total_attempts):
+        try:
+            with httpx.Client() as client:
+                response = client.post(
+                    OPENROUTER_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout,
+                )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_error = f"network error: {exc!r}"
+        else:
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    content = data["choices"][0]["message"]["content"]
+                except (ValueError, KeyError, IndexError, TypeError) as exc:
+                    raise ModelCallFailed(
+                        model,
+                        f"unexpected response shape: {exc!r} body={response.text[:500]!r}",
+                    )
+                if not isinstance(content, str) or not content.strip():
+                    raise ModelCallFailed(model, "empty content in response")
+                return content
+
+            if response.status_code not in _RETRYABLE_STATUSES:
+                raise ModelCallFailed(
+                    model,
+                    f"HTTP {response.status_code}: {response.text[:500]}",
+                )
+
+            last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+
+        if attempt < total_attempts - 1:
+            time.sleep(2 ** attempt)  # 1s, 2s, 4s, ...
 
     raise ModelCallFailed(model, f"after {total_attempts} attempts: {last_error}")

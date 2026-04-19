@@ -123,12 +123,15 @@ def _build_user_message(
         parts.append("You previously asked the following clarifying questions and the user answered them:")
         parts.append("")
         for i, item in enumerate(prior_clarifications, start=1):
+            ans = item.answer.strip()
             parts.append(f"Q{i}: {item.question}")
-            parts.append(f"A{i}: {item.answer if item.answer else '(no answer provided)'}")
+            parts.append(f"A{i}: {ans if ans else '[User provided no answer]'}")
             parts.append("")
         parts.append(
-            "Use the answers to produce a final improved_prompt. "
-            "Set needs_clarification to false unless a critical ambiguity remains."
+            "Use the provided answers to produce a final improved_prompt. "
+            "Prioritize finalizing the brief now that you have more context. "
+            "Only set needs_clarification to true if a critical ambiguity still prevents "
+            "any reasonable research from starting."
         )
     return "\n".join(parts)
 

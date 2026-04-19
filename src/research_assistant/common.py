@@ -1,51 +1,13 @@
-"""CLI entry point for the Multi-LLM Research Assistant.
-
-Pipeline:
-  1. Init db/storage.db and load config. Fail fast if API key is not set.
-  2. If data/intermediate/clarifications.md is absent, call the improver with
-     just the prompt. If the improver asks questions, write them to
-     clarifications.md and exit 0.
-  3. If clarifications.md is present, parse it and call the improver with the
-     full context. Expect a finalized research brief.
-  4. Fan out the brief to every enabled researcher in parallel.
-     If fewer than MIN_SUCCESSFUL_RESEARCHERS succeed, abort and explain.
-  5. Send all successful responses to the reviewer for synthesis.
-  6. Write data/intermediate/output_intermediate.md (raw researcher responses)
-     and data/output/output_final.md (reviewer synthesis), then delete
-     clarifications.md.
-
-Exit codes:
-  0 — success, or "needs clarification, written clarifications.md, exited cleanly"
-  1 — configuration or input error (missing db/storage.db key, missing input.txt)
-  2 — pipeline abort (too few researchers, malformed model JSON twice, etc.)
-"""
-
-from __future__ import annotations
-
-import asyncio
 import sys
-import traceback
 from dataclasses import dataclass
 from pathlib import Path
-
-import httpx
-
 from research_assistant.db import (
     get_enabled_researcher_models,
     get_setting,
     init_db,
 )
-from research_assistant.improver import (
-    ClarificationItem,
-    ImproverResult,
-    parse_clarifications_md,
-    run_improver,
-    write_clarifications_md,
-)
-from research_assistant.openrouter_client import ModelCallFailed
-from research_assistant.researcher import ResearcherResult, run_researchers
-from research_assistant.reviewer import ReviewerResult, run_reviewer
-
+from research_assistant.researcher import ResearcherResult
+from research_assistant.reviewer import ReviewerResult
 
 # ---------------------------------------------------------------------------
 # Paths — all relative to the project root (three levels above this file)
@@ -63,11 +25,6 @@ IMPROVED_PROMPT_PATH = INPUT_PATH.parent / "improved_prompt.txt"
 PROMPTS_DIR = PROJECT_DIR / "prompts"
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Config:
     api_key: str
@@ -79,7 +36,7 @@ class Config:
     min_successful_researchers: int
 
 
-def _load_config() -> Config:
+def load_config() -> Config:
     init_db(DB_PATH)
 
     def _get(key: str) -> str:
@@ -128,7 +85,7 @@ def _load_config() -> Config:
     )
 
 
-def _read_text(path: Path, description: str) -> str:
+def read_text(path: Path, description: str) -> str:
     if not path.exists():
         print(f"error: {description} not found at {path}", file=sys.stderr)
         sys.exit(1)
@@ -140,7 +97,7 @@ def _read_text(path: Path, description: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _format_intermediate_output(
+def format_intermediate_output(
     original_prompt: str,
     improved_prompt: str,
     config: Config,
@@ -195,7 +152,61 @@ def _format_intermediate_output(
     return "\n".join(lines)
 
 
-def _format_final_output(
+def format_intermediate_header(original_prompt: str, improved_prompt: str) -> str:
+    """Return the static header written to output_intermediate.md before threads start.
+
+    Each researcher thread appends its own section via ``format_intermediate_footer``
+    once it has finished.
+    """
+    lines: list[str] = [
+        "# Research — Intermediate Output",
+        "",
+        "## Query",
+        "",
+        "**Original prompt:**",
+        "",
+        "> " + original_prompt.strip().replace("\n", "\n> "),
+        "",
+    ]
+    if improved_prompt.strip() != original_prompt.strip():
+        lines += [
+            "**Improved prompt:**",
+            "",
+            "> " + improved_prompt.strip().replace("\n", "\n> "),
+            "",
+        ]
+    lines += [
+        "## Researcher responses",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def format_intermediate_footer(config: Config, researcher_results: list[ResearcherResult]) -> str:
+    """Return the models-summary section appended after all researcher threads complete."""
+    successful = [r for r in researcher_results if r.success]
+    failed = [r for r in researcher_results if not r.success]
+
+    lines: list[str] = [
+        "## Models used",
+        "",
+        f"- **Improver:** `{config.improver_model}`",
+        "- **Researchers (succeeded):**",
+    ]
+    if successful:
+        for r in successful:
+            lines.append(f"  - `{r.model}`")
+    else:
+        lines.append("  - (none)")
+    if failed:
+        lines.append("- **Researchers (failed and dropped):**")
+        for r in failed:
+            lines.append(f"  - `{r.model}` — {r.error}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_final_output(
     review: ReviewerResult,
 ) -> str:
     def _esc(t: str) -> str:
@@ -261,7 +272,7 @@ def _format_final_output(
     return "\n".join(lines)
 
 
-def _format_abort_output(
+def format_abort_output(
     original_prompt: str,
     improved_prompt: str,
     config: Config,
@@ -312,171 +323,3 @@ def _format_abort_output(
         lines.append("- (no researchers ran)")
     lines.append("")
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-
-async def _run() -> int:
-    config = _load_config()
-
-    # Ensure runtime directories exist
-    INTERMEDIATE_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    original_prompt = _read_text(INPUT_PATH, "data/input/input.txt").strip()
-    if not original_prompt:
-        print("error: data/input/input.txt is empty", file=sys.stderr)
-        return 1
-
-    # Load all three system prompts up front so a missing file fails fast.
-    improver_system = _read_text(PROMPTS_DIR / "improver.txt", "prompts/improver.txt")
-    researcher_system = _read_text(
-        PROMPTS_DIR / "researcher.txt", "prompts/researcher.txt"
-    )
-    reviewer_system = _read_text(PROMPTS_DIR / "reviewer.txt", "prompts/reviewer.txt")
-
-    # A single shared client across every stage enables connection pooling.
-    async with httpx.AsyncClient() as client:
-        # Initialize prior from disk if it exists (allows resuming or pre-filling)
-        prior = (
-            parse_clarifications_md(CLARIFICATIONS_PATH)
-            if CLARIFICATIONS_PATH.exists()
-            else None
-        )
-
-        print(f"[1/3] Calling improver ({config.improver_model})...")
-        try:
-            improver_result: ImproverResult = await run_improver(
-                client,
-                config.improver_model,
-                system_prompt=improver_system,
-                raw_prompt=original_prompt,
-                api_key=config.api_key,
-                prior_clarifications=prior,
-                timeout=config.timeout,
-                max_retries=config.max_retries,
-            )
-        except ModelCallFailed as exc:
-            print(f"error: improver failed: {exc}", file=sys.stderr)
-            return 2
-
-        if improver_result.needs_clarification:
-            write_clarifications_md(CLARIFICATIONS_PATH, improver_result.questions)
-            print(
-                f"[!] Improver had questions (saved to {CLARIFICATIONS_PATH.relative_to(PROJECT_DIR)}), "
-                "but we are proceeding with its best-effort brief."
-            )
-
-
-        improved_prompt = improver_result.improved_prompt
-        IMPROVED_PROMPT_PATH.write_text(improved_prompt, encoding="utf-8")
-        print(f"Wrote {IMPROVED_PROMPT_PATH.relative_to(PROJECT_DIR)}.")
-
-        # -------------------------------------------------------------------
-        # Stage 2: researchers
-        # -------------------------------------------------------------------
-        print(
-            f"[2/3] Running {len(config.researcher_models)} researchers in parallel...",
-        )
-        researcher_results = await run_researchers(
-            client,
-            config.researcher_models,
-            system_prompt=researcher_system,
-            improved_prompt=improved_prompt,
-            api_key=config.api_key,
-            timeout=config.timeout,
-            max_retries=config.max_retries,
-        )
-        successful = [r for r in researcher_results if r.success]
-        failed = [r for r in researcher_results if not r.success]
-        for r in successful:
-            print(f"    ok   {r.model}")
-        for r in failed:
-            print(f"    FAIL {r.model} — {r.error}")
-
-        # Save individual researcher results
-        for r in successful:
-            sanitized_name = r.model.replace("/", "_").replace(":", "_")
-            researcher_file = INTERMEDIATE_DIR / f"researcher_{sanitized_name}.md"
-            researcher_file.write_text(r.content or "", encoding="utf-8")
-
-        if len(successful) < config.min_successful_researchers:
-            reason = (
-                f"Only {len(successful)} researcher(s) succeeded, but "
-                f"MIN_SUCCESSFUL_RESEARCHERS is {config.min_successful_researchers}. "
-                "Not synthesizing a potentially misleading answer."
-            )
-            print(f"error: {reason}", file=sys.stderr)
-            OUTPUT_INTERMEDIATE.write_text(
-                _format_abort_output(
-                    original_prompt, improved_prompt, config, researcher_results, reason
-                ),
-                encoding="utf-8",
-            )
-            return 2
-
-        OUTPUT_INTERMEDIATE.write_text(
-            _format_intermediate_output(
-                original_prompt, improved_prompt, config, researcher_results
-            ),
-            encoding="utf-8",
-        )
-        print(f"Wrote {OUTPUT_INTERMEDIATE.relative_to(PROJECT_DIR)}.")
-
-        # -------------------------------------------------------------------
-        # Stage 3: reviewer
-        # -------------------------------------------------------------------
-        print(f"[3/3] Calling reviewer ({config.reviewer_model})...")
-        try:
-            review = await run_reviewer(
-                client,
-                config.reviewer_model,
-                system_prompt=reviewer_system,
-                improved_prompt=improved_prompt,
-                researcher_results=researcher_results,
-                preference_ranking=config.researcher_models,
-                api_key=config.api_key,
-                timeout=config.timeout,
-                max_retries=config.max_retries,
-            )
-        except ModelCallFailed as exc:
-            print(f"error: reviewer failed: {exc}", file=sys.stderr)
-            return 2
-
-        # -------------------------------------------------------------------
-        # Stage 4: output assembly
-        # -------------------------------------------------------------------
-        OUTPUT_FINAL.write_text(
-            _format_final_output(review),
-            encoding="utf-8",
-        )
-        print(f"Done. Wrote {OUTPUT_FINAL.relative_to(PROJECT_DIR)}.")
-
-        # Only clean up clarifications.md after a fully successful run.
-        if CLARIFICATIONS_PATH.exists():
-            try:
-                CLARIFICATIONS_PATH.unlink()
-            except OSError:
-                pass
-
-        return 0
-
-
-def main_cli() -> None:
-    """Entry point for `uv run app`."""
-    try:
-        code = asyncio.run(_run())
-    except KeyboardInterrupt:
-        print("\ninterrupted.", file=sys.stderr)
-        code = 1
-    except Exception:  # pragma: no cover
-        traceback.print_exc()
-        code = 2
-    sys.exit(code)
-
-
-if __name__ == "__main__":
-    main_cli()
