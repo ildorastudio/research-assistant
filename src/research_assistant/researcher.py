@@ -13,6 +13,7 @@ enough researchers succeeded.
 from __future__ import annotations
 
 import asyncio
+import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ class ResearcherResult:
     success: bool
     content: Optional[str]
     error: Optional[str]
+    duration_seconds: float = 0.0
 
 
 def _run_one_sync(
@@ -46,6 +48,7 @@ def _run_one_sync(
     under *file_lock* so partial results are visible on disk as each model
     finishes rather than only after all models complete.
     """
+    start_time = time.perf_counter()
     try:
         content = call_model_sync(
             model,
@@ -56,14 +59,23 @@ def _run_one_sync(
             timeout=timeout,
             max_retries=max_retries,
         )
-        result = ResearcherResult(model=model, success=True, content=content, error=None)
+        duration = time.perf_counter() - start_time
+        result = ResearcherResult(
+            model=model, success=True, content=content, error=None, duration_seconds=duration
+        )
     except ModelCallFailed as exc:
-        result = ResearcherResult(model=model, success=False, content=None, error=exc.last_error)
+        duration = time.perf_counter() - start_time
+        result = ResearcherResult(
+            model=model, success=False, content=None, error=exc.last_error, duration_seconds=duration
+        )
     except Exception as exc:  # pragma: no cover — defensive catch-all
-        result = ResearcherResult(model=model, success=False, content=None, error=f"unexpected: {exc!r}")
+        duration = time.perf_counter() - start_time
+        result = ResearcherResult(
+            model=model, success=False, content=None, error=f"unexpected: {exc!r}", duration_seconds=duration
+        )
 
     if result.success:
-        section = f"### {result.model}\n\n{(result.content or '').strip()}\n\n"
+        section = f"### {result.model}\n\n*Time taken: {result.duration_seconds:.2f}s*\n\n{(result.content or '').strip()}\n\n"
         with file_lock:
             existing = output_file.read_text(encoding="utf-8")
             output_file.write_text(existing + section, encoding="utf-8")

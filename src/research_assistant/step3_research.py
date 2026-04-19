@@ -63,15 +63,16 @@ async def main():
     successful = [r for r in researcher_results if r.success]
     failed = [r for r in researcher_results if not r.success]
     for r in successful:
-        print(f"    ok   {r.model}", flush=True)
+        print(f"    ok   {r.model} ({r.duration_seconds:.2f}s)", flush=True)
     for r in failed:
-        print(f"    FAIL {r.model} — {r.error}", flush=True)
+        print(f"    FAIL {r.model} ({r.duration_seconds:.2f}s) — {r.error}", flush=True)
 
     # Save individual researcher results
     for r in successful:
         sanitized_name = r.model.replace("/", "_").replace(":", "_")
         researcher_file = INTERMEDIATE_DIR / f"researcher_{sanitized_name}.md"
-        researcher_file.write_text(r.content or "", encoding="utf-8")
+        content_with_time = f"Time taken: {r.duration_seconds:.2f}s\n\n{r.content or ''}"
+        researcher_file.write_text(content_with_time, encoding="utf-8")
 
     if len(successful) < config.min_successful_researchers:
         reason = (f"Only {len(successful)} researcher(s) succeeded, but "

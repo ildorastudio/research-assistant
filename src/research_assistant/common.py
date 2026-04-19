@@ -143,6 +143,8 @@ def format_intermediate_output(
         for r in successful:
             lines.append(f"### {r.model}")
             lines.append("")
+            lines.append(f"*Time taken: {r.duration_seconds:.2f}s*")
+            lines.append("")
             lines.append((r.content or "").strip())
             lines.append("")
     else:
@@ -195,13 +197,13 @@ def format_intermediate_footer(config: Config, researcher_results: list[Research
     ]
     if successful:
         for r in successful:
-            lines.append(f"  - `{r.model}`")
+            lines.append(f"  - `{r.model}` ({r.duration_seconds:.2f}s)")
     else:
         lines.append("  - (none)")
     if failed:
         lines.append("- **Researchers (failed and dropped):**")
         for r in failed:
-            lines.append(f"  - `{r.model}` — {r.error}")
+            lines.append(f"  - `{r.model}` ({r.duration_seconds:.2f}s) — {r.error}")
     lines.append("")
     return "\n".join(lines)
 
@@ -315,10 +317,10 @@ def format_abort_output(
     ]
     if successful:
         for r in successful:
-            lines.append(f"- `{r.model}` — succeeded")
+            lines.append(f"- `{r.model}` ({r.duration_seconds:.2f}s) — succeeded")
     if failed:
         for r in failed:
-            lines.append(f"- `{r.model}` — FAILED: {r.error}")
+            lines.append(f"- `{r.model}` ({r.duration_seconds:.2f}s) — FAILED: {r.error}")
     if not successful and not failed:
         lines.append("- (no researchers ran)")
     lines.append("")
