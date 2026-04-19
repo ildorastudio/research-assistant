@@ -57,6 +57,7 @@ async def main():
         timeout=config.timeout,
         max_retries=config.max_retries,
         output_file=OUTPUT_INTERMEDIATE,
+        intermediate_dir=INTERMEDIATE_DIR,
         file_lock=file_lock,
     )
     
@@ -67,12 +68,7 @@ async def main():
     for r in failed:
         print(f"    FAIL {r.model} ({r.duration_seconds:.2f}s) — {r.error}", flush=True)
 
-    # Save individual researcher results
-    for r in successful:
-        sanitized_name = r.model.replace("/", "_").replace(":", "_")
-        researcher_file = INTERMEDIATE_DIR / f"researcher_{sanitized_name}.md"
-        content_with_time = f"Time taken: {r.duration_seconds:.2f}s\n\n{r.content or ''}"
-        researcher_file.write_text(content_with_time, encoding="utf-8")
+    # Save individual researcher results (Moved to researcher.py for parallel execution)
 
     if len(successful) < config.min_successful_researchers:
         reason = (f"Only {len(successful)} researcher(s) succeeded, but "
