@@ -13,9 +13,9 @@ from typing import Optional
 
 import httpx
 
-from improver import _extract_json_object  # re-use the same tolerant parser
-from openrouter_client import ModelCallFailed, call_model
-from researcher import ResearcherResult
+from research_assistant.improver import _extract_json_object  # re-use the same tolerant parser
+from research_assistant.openrouter_client import ModelCallFailed, call_model
+from research_assistant.researcher import ResearcherResult
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +172,7 @@ async def run_reviewer(
     researcher_results: list[ResearcherResult],
     preference_ranking: list[str],
     *,
+    api_key: str,
     timeout: float = 180.0,
     max_retries: int = 2,
 ) -> ReviewerResult:
@@ -199,6 +200,7 @@ async def run_reviewer(
             model,
             system=system_prompt,
             user=user_message,
+            api_key=api_key,
             response_format={"type": "json_object"},
             timeout=timeout,
             max_retries=max_retries,

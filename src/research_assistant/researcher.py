@@ -14,7 +14,7 @@ from typing import Optional
 
 import httpx
 
-from openrouter_client import ModelCallFailed, call_model
+from research_assistant.openrouter_client import ModelCallFailed, call_model
 
 
 @dataclass
@@ -30,6 +30,7 @@ async def _run_one(
     model: str,
     system_prompt: str,
     improved_prompt: str,
+    api_key: str,
     timeout: float,
     max_retries: int,
 ) -> ResearcherResult:
@@ -39,6 +40,7 @@ async def _run_one(
             model,
             system=system_prompt,
             user=improved_prompt,
+            api_key=api_key,
             response_format=None,
             timeout=timeout,
             max_retries=max_retries,
@@ -58,6 +60,7 @@ async def run_researchers(
     system_prompt: str,
     improved_prompt: str,
     *,
+    api_key: str,
     timeout: float = 180.0,
     max_retries: int = 2,
 ) -> list[ResearcherResult]:
@@ -72,7 +75,7 @@ async def run_researchers(
     # asyncio.Semaphore to cap concurrency. 3-7 is well within safe territory
     # for a shared httpx.AsyncClient.
     coros = [
-        _run_one(client, slug, system_prompt, improved_prompt, timeout, max_retries)
+        _run_one(client, slug, system_prompt, improved_prompt, api_key, timeout, max_retries)
         for slug in model_slugs
     ]
     return await asyncio.gather(*coros)

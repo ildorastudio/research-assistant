@@ -17,7 +17,7 @@ from typing import Optional
 
 import httpx
 
-from openrouter_client import ModelCallFailed, call_model
+from research_assistant.openrouter_client import ModelCallFailed, call_model
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +202,7 @@ async def run_improver(
     system_prompt: str,
     raw_prompt: str,
     *,
+    api_key: str,
     prior_clarifications: Optional[list[ClarificationItem]] = None,
     timeout: float = 180.0,
     max_retries: int = 2,
@@ -226,6 +227,7 @@ async def run_improver(
                 model,
                 system=system_prompt,
                 user=user_message,
+                api_key=api_key,
                 response_format={"type": "json_object"},
                 timeout=timeout,
                 max_retries=max_retries,

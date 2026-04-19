@@ -35,11 +35,15 @@ async def call_model(
     system: str,
     user: str,
     *,
+    api_key: str,
     response_format: Optional[dict] = None,
     timeout: float = 180.0,
     max_retries: int = 2,
 ) -> str:
     """Call a single model on OpenRouter and return the assistant message text.
+
+    `api_key` is passed explicitly by the caller (loaded from the settings db)
+    so this module never touches environment variables or files.
 
     `max_retries` is the number of retries AFTER the first attempt, so
     `max_retries=2` means up to 3 total HTTP requests.
@@ -49,9 +53,8 @@ async def call_model(
     Raises `ModelCallFailed` if every attempt fails. Auth-style 4xx errors
     fail immediately without retry.
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        raise ModelCallFailed(model, "OPENROUTER_API_KEY is not set")
+        raise ModelCallFailed(model, "OPENROUTER_API_KEY is empty — set it via manage_db.py")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
